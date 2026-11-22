@@ -1,0 +1,40 @@
+[package]
+name = "invisible_payment"
+version = "0.1.0"
+authors = ["Princess Ada-ihuoma"]
+edition = "2024"
+license = "MIT"
+description = "The Invisible Payment: a stealth payment on Tari Ootle — money nobody can see until the receiver reveals it"
+
+[dependencies]
+tari_template_lib = "0.40"
+sha2 = "0.10"
+
+[dev-dependencies]
+tari_template_test_tooling = "0.53"
+
+[profile.release]
+opt-level = 's'     # Optimize for size.
+lto = true          # Enable Link Time Optimization.
+codegen-units = 1   # Reduce number of codegen units to increase optimizations.
+panic = 'abort'     # Abort on panic.
+strip = true
+
+# Wasmer and Cranelift are extremely slow when compiled in debug mode (~10x slower),
+# which makes template tests painfully slow. Optimize these specific crates even in
+# dev/test builds.
+[profile.dev.package.wasmer]
+opt-level = 2
+[profile.dev.package.wasmer-compiler]
+opt-level = 2
+[profile.dev.package.wasmer-compiler-cranelift]
+opt-level = 2
+[profile.dev.package.cranelift-codegen]
+opt-level = 2
+[profile.dev.package.cranelift-frontend]
+opt-level = 2
+[profile.dev.package.cranelift-entity]
+opt-level = 2
+
+[lib]
+crate-type = ["cdylib"]

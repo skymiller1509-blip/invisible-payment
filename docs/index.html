@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Invisible Payment — Tari Ootle demo</title>
+<!-- The Tari connector supplies window.tari inside Tari Universe and stands
+     aside when the Sapient extension already owns it. See
+     https://universe.tari.mw/integration — "Include it always." -->
+<script src="https://universe.tari.mw/tari-connector.js" defer></script>
+<script src="config.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; background: #0f1420; color: #e8ecf4; line-height: 1.5; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 20px 16px 60px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  h2 { font-size: 1.1rem; margin: 28px 0 8px; border-top: 1px solid #2a3348; padding-top: 18px; }
+  p { margin: 6px 0; }
+  .sub { color: #9aa7bd; }
+  .banner { background: #3a2b00; border: 1px solid #8a6d1b; color: #ffd970; border-radius: 8px; padding: 12px 14px; margin: 14px 0; font-size: 0.95rem; }
+  .card { background: #182034; border: 1px solid #2a3348; border-radius: 10px; padding: 14px; margin: 12px 0; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .stat { flex: 1 1 140px; background: #111827; border: 1px solid #2a3348; border-radius: 8px; padding: 10px 12px; }
+  .stat b { display: block; font-size: 1.25rem; }
+  .stat span { color: #9aa7bd; font-size: 0.85rem; }
+  label { display: block; font-size: 0.9rem; color: #9aa7bd; margin: 10px 0 2px; }
+  input[type=text], input[type=number] { width: 100%; padding: 9px 10px; border-radius: 6px; border: 1px solid #2a3348; background: #0f1420; color: #e8ecf4; font-size: 1rem; }
+  button { background: #2f6feb; color: #fff; border: 0; border-radius: 6px; padding: 10px 16px; font-size: 1rem; cursor: pointer; margin: 8px 6px 0 0; }
+  button:disabled { background: #33405a; color: #8b98ad; cursor: not-allowed; }
+  button.secondary { background: #26314a; }
+  button.danger { background: #8a2f2f; }
+  button.big { font-size: 1.15rem; padding: 14px 22px; }
+  .ok { color: #4ade80; }
+  .bad { color: #f87171; }
+  .mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 0.85rem; word-break: break-all; }
+  #log { background: #0a0e18; border: 1px solid #2a3348; border-radius: 8px; padding: 12px; min-height: 120px; font-size: 0.92rem; }
+  #log div { margin: 4px 0; }
+  .stepnum { display: inline-block; background: #2f6feb; color: #fff; border-radius: 50%; width: 24px; height: 24px; text-align: center; line-height: 24px; font-size: 0.85rem; margin-right: 6px; }
+  code { background: #111827; padding: 1px 5px; border-radius: 4px; font-size: 0.9em; }
+  a { color: #7aa7ff; }
+  .vault { background: #0a0e18; border: 2px dashed #4b5a78; border-radius: 12px; padding: 20px; margin: 14px 0; text-align: center; }
+  .vault .big { font-size: 2.2rem; font-weight: 800; letter-spacing: 2px; }
+  .vault .who { color: #9aa7bd; font-size: 0.95rem; margin-top: 6px; }
+  .vault.revealed { border-style: solid; border-color: #4ade80; background: #0e2418; }
+  .vault.revealed .big { color: #4ade80; }
+  .reveal-flash { animation: flash 0.9s ease; }
+  @keyframes flash { 0% { background: #1d4d2b; } 100% { background: #0e2418; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>The Invisible Payment</h1>
+  <p class="sub">Money nobody can see until the receiver reveals it. Built on Tari Ootle for the Tari November Build Contest.</p>
+
+  <div class="banner"><strong>SIMULATION.</strong> This section runs the payment logic in your browser. No real TARI moves here. The on-chain template is the Rust code in this repo (<code>src/lib.rs</code>); its engine tests pass against the real Tari engine. A live mode is below, under “On-chain (live)”: connect a Sapient wallet on Esmeralda and it talks to the published template. Until the template address is pasted into <code>config.js</code>, the live mode can connect and read the epoch but cannot lock funds.</div>
+
+  <p><strong>The idea.</strong> A sender locks TARI in a vault. On Ootle, native TARI is a stealth resource: the amount and the owner are hidden from observers. The payment opens only after a reveal epoch, only to the named receiver, and only with the secret phrase. Until then there is nothing to see. Then the receiver types the secret — and the money appears.</p>
+
+  <h2>What an observer sees</h2>
+  <div class="vault" id="vaultBox">
+    <div class="big" id="vaultAmount">???</div>
+    <div class="who" id="vaultWho">No amount. No sender. No receiver. That is the point.</div>
+    <div class="who" id="vaultStatus">Status: no payment hidden yet</div>
+  </div>
+
+  <h2>Balances</h2>
+  <div class="row">
+    <div class="stat"><span>Sender balance</span><b id="senderBal">1,000 TARI</b></div>
+    <div class="stat"><span>Receiver balance</span><b id="receiverBal">1,000 TARI</b></div>
+    <div class="stat"><span>Current epoch</span><b id="epochNow">0</b></div>
+  </div>
+  <p class="sub">Epochs are the chain's clock. Here, one click is one epoch, so you can watch time pass.</p>
+  <button id="advanceEpoch" class="secondary">Advance one epoch</button>
+
+  <h2><span class="stepnum">1</span>Hide a payment</h2>
+  <div class="card">
+    <label>Amount to hide (TARI)</label>
+    <input type="number" id="amount" value="100" min="1" max="1000">
+    <label>Reveal epoch (first epoch the receiver may reveal)</label>
+    <input type="number" id="revealEpoch" value="10" min="1">
+    <label>Secret phrase (only its SHA-256 goes on chain)</label>
+    <input type="text" id="secret" value="only-the-receiver-knows-this-phrase">
+    <p class="sub">SHA-256 of the secret, as stored on chain: <span class="mono" id="secretHash">—</span></p>
+    <button id="hidePayment">Hide the payment</button>
+    <p id="paymentState" class="sub">No payment hidden yet.</p>
+  </div>
+
+  <h2><span class="stepnum">2</span>Try to reveal too early</h2>
+  <div class="card">
+    <p>The receiver tries to reveal before the reveal epoch, with the right secret.</p>
+    <button id="revealEarly" disabled>Reveal as receiver (before reveal epoch)</button>
+    <p id="earlyResult"></p>
+  </div>
+
+  <h2><span class="stepnum">3</span>Try the wrong secret</h2>
+  <div class="card">
+    <p>Advance past the reveal epoch first, then the receiver tries a wrong phrase.</p>
+    <button id="revealWrong" disabled>Reveal with a wrong secret</button>
+    <p id="wrongResult"></p>
+  </div>
+
+  <h2><span class="stepnum">4</span>The reveal</h2>
+  <div class="card">
+    <p>The moment the money appears. Advance the epoch past the reveal epoch, then the receiver types the secret.</p>
+    <label>Secret phrase</label>
+    <input type="text" id="revealSecret" placeholder="Type the secret phrase">
+    <button id="revealBtn" class="big" disabled>Reveal the payment</button>
+    <button id="revealStranger" disabled class="secondary">Reveal as someone else</button>
+    <p id="revealResult"></p>
+  </div>
+
+  <h2><span class="stepnum">5</span>Cancel path</h2>
+  <div class="card">
+    <p>A second payment, for the sender changing their mind. Cancel works only before the reveal epoch and only for the sender.</p>
+    <button id="createPayment2">Hide a second payment (100 TARI, reveal epoch 20)</button>
+    <button id="cancelBtn" disabled class="danger">Cancel as sender</button>
+    <button id="cancelStranger" disabled class="secondary">Cancel as someone else</button>
+    <p id="cancelResult"></p>
+  </div>
+
+  <h2>Log</h2>
+  <div id="log"></div>
+
+  <h2>On-chain (live)</h2>
+  <div class="banner" id="liveBanner"><strong>LIVE.</strong> This section talks to the real Esmeralda testnet through your wallet. Real test TARI moves here, and every step asks for your approval in the wallet first. Nothing is sent until you approve it.</div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Wallet</h3>
+    <p class="sub">Works with the Sapient extension or inside Tari Universe. Switch the wallet to the same network as <code>config.js</code> (<span id="liveNetName">esmeralda</span>).</p>
+    <button id="liveConnect">Connect Sapient wallet</button>
+    <p id="liveWalletStatus" class="sub">Not connected. No wallet has been found on this page yet.</p>
+    <div id="liveBalances"></div>
+    <button id="liveCheckPrivate" class="secondary" disabled>Check shielded balance</button>
+    <p id="livePrivateOut" class="sub"></p>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Current epoch</h3>
+    <p class="sub">Read from the public indexer. No wallet needed. Epochs are the chain's clock; they are not days.</p>
+    <button id="liveReadEpoch" class="secondary">Read current epoch</button>
+    <p id="liveEpochOut" class="sub">—</p>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Hide a payment on-chain</h3>
+    <p class="sub">This withdraws TARI from your wallet as a stealth bucket and calls <code>InvisiblePayment.create</code> in the same transaction. The secret phrase stays here; only its SHA-256 goes on chain. You will confirm in the wallet popup.</p>
+    <label>Amount to hide (TARI)</label>
+    <input type="number" id="liveAmount" value="1" min="0.000001" step="any">
+    <label>Reveal epoch (first epoch the receiver may reveal)</label>
+    <input type="number" id="liveRevealEpoch" min="1" step="1" placeholder="read the current epoch first">
+    <p class="sub" id="liveRevealHint">Epochs are not days. Read the current epoch first; the default is 24 epochs ahead.</p>
+    <label>Receiver public key — 64 hex characters</label>
+    <input type="text" id="liveReceiverKey" spellcheck="false" placeholder="e.g. 3f2a… (64 hex characters)">
+    <p class="sub">The only key that can reveal the payment. The wallet does not expose the connected account's public key directly, so the receiver's key has to be pasted here for now (see the TODO in the page source and the README).</p>
+    <label>Secret phrase (only its SHA-256 goes on chain)</label>
+    <input type="text" id="liveSecret" value="only-the-receiver-knows-this-phrase">
+    <p class="sub">SHA-256 of the secret, as stored on chain: <span class="mono" id="liveSecretHash">—</span></p>
+    <button id="liveHide" disabled>Hide on-chain</button>
+    <p id="liveHideOut"></p>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Look up a payment</h3>
+    <p class="sub">Read a payment component from the indexer. No wallet needed.</p>
+    <label>Component address</label>
+    <input type="text" id="liveComp" spellcheck="false" placeholder="component_…">
+    <button id="liveLookup" class="secondary">Read</button>
+    <div id="liveCompOut"></div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Reveal (claim) on-chain</h3>
+    <p class="sub">The signer must be the receiver named when the payment was hidden; the template checks this on chain. The payment is deposited into the connected wallet's own account.</p>
+    <label>Component address</label>
+    <input type="text" id="liveClaimComp" spellcheck="false" placeholder="component_…">
+    <label>Secret phrase</label>
+    <input type="text" id="liveClaimSecret" placeholder="Type the secret phrase">
+    <button id="liveClaim" class="big" disabled>Reveal on-chain</button>
+    <p id="liveClaimOut"></p>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Cancel on-chain</h3>
+    <p class="sub">Only the sender can cancel, and only before the reveal epoch. The funds return to the sender's account.</p>
+    <label>Component address</label>
+    <input type="text" id="liveCancelComp" spellcheck="false" placeholder="component_…">
+    <button id="liveCancel" class="danger" disabled>Cancel on-chain</button>
+    <p id="liveCancelOut"></p>
+  </div>
+
+  <h2>Live log</h2>
+  <div id="liveLog"></div>
+
+  <h2>What this proves</h2>
+  <p>The Rust template (<code>src/lib.rs</code>) enforces the same checks this page simulates, and its tests (<code>tests/test.rs</code>) run against the real Tari engine: reveal blocked before the epoch, reveal blocked with a wrong secret, reveal blocked for a non-receiver, reveal succeeds after the epoch with the right secret, cancel works before the epoch and is blocked after it. Run them with <code>cargo test</code>.</p>
+  <p class="sub">Honest limits: this demo is a simulation, not a live deployment. The template is not published to Esmeralda yet — that needs a funded Sapient wallet. The live mode above is wired and ready; it activates once the template address is pasted into <code>config.js</code> (see the README for the publish steps). The invisibility is the stealth property of native TARI on Ootle: amounts and owners are hidden from observers on chain. The epoch length on the live network is a fixed number of base-layer blocks; this demo does not state that number because the docs do not give it.</p>
+</div>
+
+<script>
+"use strict";
+// --- State: mirrors the InvisiblePayment component exactly ---
+const state = {
+  senderBal: 1000, receiverBal: 1000,
+  epoch: 0,
+  payment: null,   // { amount, revealEpoch, secretHashHex, status: 'hidden'|'revealed'|'cancelled' }
+  payment2: null,  // second payment for the cancel path
+};
+
+const $ = (id) => document.getElementById(id);
+const fmt = (n) => n.toLocaleString("en-US") + " TARI";
+
+function log(msg, cls) {
+  const d = document.createElement("div");
+  if (cls) d.className = cls;
+  d.textContent = msg;
+  $("log").appendChild(d);
+}
+
+async function sha256Hex(text) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function render() {
+  $("senderBal").textContent = fmt(state.senderBal);
+  $("receiverBal").textContent = fmt(state.receiverBal);
+  $("epochNow").textContent = state.epoch;
+  const box = $("vaultBox");
+  if (!state.payment) {
+    box.classList.remove("revealed");
+    $("vaultAmount").textContent = "???";
+    $("vaultWho").textContent = "No amount. No sender. No receiver. That is the point.";
+    $("vaultStatus").textContent = "Status: no payment hidden yet";
+    return;
+  }
+  const p = state.payment;
+  if (p.status === "hidden") {
+    box.classList.remove("revealed");
+    $("vaultAmount").textContent = "???";
+    $("vaultWho").textContent = "Something is locked here. Nobody can see how much, or for whom.";
+    $("vaultStatus").textContent = "Status: HIDDEN — reveal epoch " + p.revealEpoch + ", secret hash " + p.secretHashHex.slice(0, 16) + "…";
+  } else if (p.status === "revealed") {
+    box.classList.add("revealed");
+    $("vaultAmount").textContent = fmt(p.amount);
+    $("vaultWho").textContent = "Revealed to the receiver. There it is.";
+    $("vaultStatus").textContent = "Status: REVEALED";
+  } else {
+    box.classList.remove("revealed");
+    $("vaultAmount").textContent = "—";
+    $("vaultWho").textContent = "The sender took it back.";
+    $("vaultStatus").textContent = "Status: CANCELLED";
+  }
+  if (p.status !== "hidden") {
+    $("paymentState").textContent =
+      "Payment " + p.status + " — " + p.amount + " TARI, reveal epoch " + p.revealEpoch;
+  }
+}
+
+// --- Step 1: hide ---
+$("secret").addEventListener("input", async () => {
+  $("secretHash").textContent = await sha256Hex($("secret").value);
+});
+$("secretHash").textContent = "";
+
+$("hidePayment").addEventListener("click", async () => {
+  const amount = parseInt($("amount").value, 10);
+  const revealEpoch = parseInt($("revealEpoch").value, 10);
+  const secret = $("secret").value;
+  if (state.payment) { log("A payment is already hidden in this demo. Reload the page to start over.", "bad"); return; }
+  if (!amount || amount < 1 || amount > state.senderBal) { log("Amount must be between 1 and the sender balance.", "bad"); return; }
+  if (!revealEpoch || revealEpoch <= state.epoch) { log("Reveal epoch must be in the future.", "bad"); return; }
+  if (!secret) { log("Enter a secret phrase.", "bad"); return; }
+  const hash = await sha256Hex(secret);
+  $("secretHash").textContent = hash;
+  state.payment = { amount, revealEpoch, secretHashHex: hash, status: "hidden", secret };
+  state.senderBal -= amount;
+  render();
+  log("Payment hidden: " + amount + " TARI locked for the receiver, reveal epoch " + revealEpoch + ".", "ok");
+  log("Stored on chain: SHA-256(secret) = " + hash.slice(0, 16) + "… (the phrase itself never touches the chain).");
+  log("What an observer sees now: nothing. No amount, no sender, no receiver.");
+  $("revealEarly").disabled = false;
+  $("revealWrong").disabled = false;
+  $("revealBtn").disabled = false;
+  $("revealStranger").disabled = false;
+});
+
+// --- Epoch ---
+$("advanceEpoch").addEventListener("click", () => {
+  state.epoch += 1;
+  render();
+  log("Epoch advanced to " + state.epoch + ".");
+});
+
+// --- Step 2: reveal too early ---
+$("revealEarly").addEventListener("click", async () => {
+  const p = state.payment;
+  if (!p || p.status !== "hidden") { $("earlyResult").textContent = "No hidden payment."; return; }
+  if (state.epoch < p.revealEpoch) {
+    $("earlyResult").innerHTML = '<span class="bad">BLOCKED — "Reveal epoch has not passed yet".</span> The payment stays invisible.';
+    log("Reveal before the reveal epoch rejected: Reveal epoch has not passed yet.", "bad");
+  } else {
+    $("earlyResult").innerHTML = '<span class="ok">The reveal epoch has already passed — try step 4 instead.</span>';
+  }
+});
+
+// --- Step 3: wrong secret ---
+$("revealWrong").addEventListener("click", async () => {
+  const p = state.payment;
+  if (!p || p.status !== "hidden") { $("wrongResult").textContent = "No hidden payment."; return; }
+  if (state.epoch < p.revealEpoch) {
+    $("wrongResult").innerHTML = '<span class="bad">Too early — advance the epoch past ' + p.revealEpoch + ' first.</span>';
+    return;
+  }
+  const wrongHash = await sha256Hex("a-wrong-phrase");
+  if (wrongHash !== p.secretHashHex) {
+    $("wrongResult").innerHTML = '<span class="bad">BLOCKED — "Secret does not match".</span> The payment stays invisible.';
+    log("Reveal with a wrong secret rejected: Secret does not match.", "bad");
+  }
+});
+
+// --- Step 4: the reveal ---
+async function doReveal(asReceiver) {
+  const p = state.payment;
+  if (!p || p.status !== "hidden") { $("revealResult").textContent = "No hidden payment."; return; }
+  const secret = $("revealSecret").value;
+  if (state.epoch < p.revealEpoch) {
+    $("revealResult").innerHTML = '<span class="bad">BLOCKED — "Reveal epoch has not passed yet".</span>';
+    log("Reveal rejected: Reveal epoch has not passed yet.", "bad");
+    return;
+  }
+  if (!asReceiver) {
+    $("revealResult").innerHTML = '<span class="bad">BLOCKED — "Only the receiver can claim this payment".</span> The secret was right, but the signer was not the receiver.';
+    log("Reveal by a stranger rejected: Only the receiver can claim this payment.", "bad");
+    return;
+  }
+  const hash = await sha256Hex(secret);
+  if (hash !== p.secretHashHex) {
+    $("revealResult").innerHTML = '<span class="bad">BLOCKED — "Secret does not match".</span>';
+    log("Reveal rejected: Secret does not match.", "bad");
+    return;
+  }
+  p.status = "revealed";
+  state.receiverBal += p.amount;
+  render();
+  $("vaultBox").classList.add("reveal-flash");
+  $("revealResult").innerHTML = '<span class="ok">REVEALED.</span> ' + p.amount + " TARI appeared in the receiver's account. It was there all along — nobody could see it.";
+  log("Payment revealed: " + p.amount + " TARI appeared in the receiver's balance.", "ok");
+  $("revealBtn").disabled = true;
+  $("revealEarly").disabled = true;
+  $("revealWrong").disabled = true;
+}
+$("revealBtn").addEventListener("click", () => doReveal(true));
+$("revealStranger").addEventListener("click", () => doReveal(false));
+
+// --- Step 5: cancel path ---
+$("createPayment2").addEventListener("click", () => {
+  if (state.payment2) { log("The second payment already exists.", "bad"); return; }
+  if (state.senderBal < 100) { log("The sender needs at least 100 TARI left for the second payment.", "bad"); return; }
+  state.payment2 = { amount: 100, revealEpoch: 20, status: "hidden" };
+  state.senderBal -= 100;
+  render();
+  log("Second payment hidden: 100 TARI locked, reveal epoch 20.", "ok");
+  $("cancelBtn").disabled = false;
+  $("cancelStranger").disabled = false;
+});
+$("cancelBtn").addEventListener("click", () => {
+  const p = state.payment2;
+  if (!p || p.status !== "hidden") { $("cancelResult").textContent = "No hidden second payment."; return; }
+  if (state.epoch >= p.revealEpoch) {
+    $("cancelResult").innerHTML = '<span class="bad">BLOCKED — "Payment can no longer be cancelled after the reveal epoch".</span>';
+    log("Cancel after the reveal epoch rejected.", "bad");
+    return;
+  }
+  p.status = "cancelled";
+  state.senderBal += p.amount;
+  render();
+  $("cancelResult").innerHTML = '<span class="ok">CANCELLED.</span> 100 TARI returned to the sender.';
+  log("Second payment cancelled: 100 TARI returned to the sender.", "ok");
+  $("cancelBtn").disabled = true;
+});
+$("cancelStranger").addEventListener("click", () => {
+  $("cancelResult").innerHTML = '<span class="bad">BLOCKED — "Only the sender can cancel this payment".</span>';
+  log("Cancel by a stranger rejected: Only the sender can cancel this payment.", "bad");
+});
+
+render();
+log("Demo ready. Hide a payment to begin.");
+</script>
+
+<script>
+"use strict";
+/* ── On-chain (live) mode ──────────────────────────────────────────────
+   Talks to the published InvisiblePayment template on Esmeralda through
+   window.tari (Sapient extension or Tari Universe).
+   Sources for every call below — nothing here is invented:
+   - Provider API: https://universe.tari.mw/integration and its typed
+     definitions at https://universe.tari.mw/integration/tari-dapp.d.ts
+     (tari_requestAccounts, tari_getNetwork, tari_getBalances,
+     tari_getCapabilities, tari_getSubstate, tari_createTransactionRequest,
+     tari_getTransactionRequest, tari_submitTransactionRequest,
+     tari_signAndSubmitTransaction, tari_requestViewAccess,
+     tari_getPrivateBalances; error codes 4001 / 4100 / 4200 / -32603).
+   - Instruction shapes and the request-trio flow follow the November
+     contest entrant "stake" (github.com/Mzee04/stake, web/app.js), the
+     same pattern this demo's task asked for: connect, read the current
+     epoch from the public indexer, call a template function with a
+     stealth withdrawal, look up a component from the indexer.
+   - The CBOR literal encoders below match tari_bor / minicbor, as
+     documented in stake's code: unsigned ints, byte strings, and
+     Tag(128, bytes(32)) component addresses. Hash32 and Ristretto public
+     keys are untagged 32-byte strings.
+   TODOs (open questions — see the README for the full list):
+   - TODO-1 workspaceVarName: the official .d.ts lists workspaceVarName
+     as required for withdrawStealthAndExecute, but gives no example
+     value anywhere in the docs. Stake's code omits the field, so this
+     code omits it too. If the wallet rejects the request for a missing
+     field, add it per the wallet's error.
+   - TODO-2 receiver key: the provider does not expose the connected
+     account's public key, so the receiver's 64-hex key must be pasted.
+     The docs reference a parseOotleAddress decoder in the paylink dApp
+     but do not publish its code in the integration docs.
+   - TODO-3 workspace id: the docs say withdrawStealthAndExecute reveals
+     the bucket at workspace id 1 (and that id 0 fails); stake's code
+     uses id 0. This code follows the docs (id 1).
+   The simulation above is untouched by this block. */
+const live$ = (id) => document.getElementById(id);
+
+const liveCfg = () => window.INVISIBLE_PAYMENT_CONFIG || null;
+function liveIndexerUrl() {
+  const c = liveCfg();
+  return (c && c.indexer && c.indexer[c.network]) || "https://ootle-indexer-a.tari.com";
+}
+function liveExplorerUrl() {
+  const c = liveCfg();
+  return (c && c.explorer && c.explorer[c.network]) || "https://testnet-explorer.tari.mw";
+}
+function liveTemplateAddress() {
+  const c = liveCfg();
+  return ((c && c.templateAddress) || "").trim();
+}
+function liveHasTemplate() {
+  const a = liveTemplateAddress();
+  return /^template_[0-9a-fA-F]{64}$/.test(a) || /^[0-9a-fA-F]{64}$/.test(a);
+}
+function liveBareTemplate() {
+  return liveTemplateAddress().replace(/^template_/, "");
+}
+function liveNetwork() {
+  const c = liveCfg();
+  return (c && c.network) || "esmeralda";
+}
+
+let liveWallet = null;
+let liveAccount = null;
+let liveXtrResource = null;   // Stealth TARI resource address, from balances
+let livePrivateMicro = null;  // shielded XTR balance in micro-TARI, if known
+let liveEpoch = null;         // current epoch, from the indexer
+
+function liveLog(msg, cls) {
+  const d = document.createElement("div");
+  if (cls) d.className = cls;
+  d.textContent = msg;
+  live$("liveLog").appendChild(d);
+}
+function liveEsc(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+async function liveSha256Hex(text) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+function liveFromHex(s) {
+  const h = String(s).trim().replace(/^0x/, "");
+  if (h.length % 2 !== 0) throw new Error("Hex must have an even number of characters.");
+  const out = new Uint8Array(h.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    const b = parseInt(h.slice(i * 2, i * 2 + 2), 16);
+    if (!Number.isFinite(b)) throw new Error("Not valid hex.");
+    out[i] = b;
+  }
+  return out;
+}
+function liveToHex(u8) {
+  return [...u8].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+function liveErrText(e) {
+  if (e && e.code === 4001) return "You said no in the wallet — nothing was sent.";
+  if (e && e.code === 4100) return "Not connected — connect the wallet first.";
+  return (e && (e.message || e.note)) || String(e);
+}
+
+/* --- CBOR literal args (tari_bor / minicbor) --- */
+function liveCborHead(major, n) {
+  const out = [];
+  n = BigInt(n);
+  if (n < 24n) out.push(major | Number(n));
+  else if (n < 256n) out.push(major | 24, Number(n));
+  else if (n < 65536n) out.push(major | 25, Number((n >> 8n) & 0xffn), Number(n & 0xffn));
+  else if (n < 1n << 32n)
+    out.push(major | 26, Number((n >> 24n) & 0xffn), Number((n >> 16n) & 0xffn), Number((n >> 8n) & 0xffn), Number(n & 0xffn));
+  else
+    out.push(major | 27, Number((n >> 56n) & 0xffn), Number((n >> 48n) & 0xffn), Number((n >> 40n) & 0xffn), Number((n >> 32n) & 0xffn), Number((n >> 24n) & 0xffn), Number((n >> 16n) & 0xffn), Number((n >> 8n) & 0xffn), Number(n & 0xffn));
+  return out;
+}
+function liveLit(bytes) {
+  return { Literal: liveToHex(bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes)) };
+}
+function liveUintLit(n) {
+  return liveLit(liveCborHead(0x00, n));
+}
+function liveBytesLit(u8) {
+  return liveLit([...liveCborHead(0x40, u8.length), ...u8]);
+}
+function liveComponentLit(addr) {
+  const hex = String(addr).trim().replace(/^component_/, "");
+  const bytes = liveFromHex(hex);
+  if (bytes.length !== 32) throw new Error("A component address must be 32 bytes (64 hex characters, optionally with a component_ prefix).");
+  return liveLit([...liveCborHead(0xc0, 128), ...liveCborHead(0x40, 32), ...bytes]);
+}
+function liveWorkspaceArg(id) {
+  return { Workspace: { id, offset: null } };
+}
+
+/** Convert a TARI decimal string to micro-TARI (1 TARI = 1,000,000 µT) without IEEE rounding. */
+function liveTariToMicro(input) {
+  const raw = String(input).trim();
+  if (!raw || !/^\d+(\.\d+)?$/.test(raw)) throw new Error("The amount has to be a positive number.");
+  const [whole, frac = ""] = raw.split(".");
+  if (frac.length > 6 && !/^0+$/.test(frac.slice(6))) throw new Error("The smallest unit is 0.000001 TARI (one micro-Tari).");
+  const micro = BigInt(whole || "0") * 1_000_000n + BigInt((frac + "000000").slice(0, 6));
+  if (micro <= 0n) throw new Error("The amount has to be greater than zero.");
+  return micro;
+}
+
+/* --- Wallet detection: never pretend a live run happened --- */
+function liveWalletCandidates() {
+  const out = [];
+  const seen = new Set();
+  const add = (p) => {
+    if (p && (p.request || p.isTariWallet) && !seen.has(p)) { seen.add(p); out.push(p); }
+  };
+  // Prefer wallets that announced themselves (Sapient, etc.) over the
+  // Universe page stub that tari-connector.js always installs as window.tari.
+  if (Array.isArray(window.tariProviders)) window.tariProviders.forEach(add);
+  add(window.tari);
+  return out;
+}
+function liveNoWalletHtml() {
+  return `<span class="bad">No Tari wallet is available in this browser. Install the <b>Sapient</b> extension, switch it to ${liveEsc(liveNetwork())}, then reload this page — or open the page inside Tari Universe. You can still use the simulation above and read the current epoch without a wallet.</span>`;
+}
+function liveUpdateState() {
+  const banner = live$("liveBanner");
+  const hasCfg = !!liveCfg();
+  const hasTpl = liveHasTemplate();
+  const hasWallet = liveWalletCandidates().length > 0;
+  if (!hasCfg) {
+    banner.innerHTML = `<strong>LIVE.</strong> <span class="bad">config.js did not load.</span> The live mode needs it for the network and template address.`;
+  } else if (!hasTpl) {
+    banner.innerHTML = `<strong>LIVE.</strong> No published template address is set in <code>config.js</code> yet. You can still connect a wallet, read the current epoch, and look up a payment component. To lock funds on-chain, publish the template yourself (see the README) and paste its address into <code>config.js</code>. Until then, use the simulation above.`;
+  } else {
+    banner.innerHTML = `<strong>LIVE.</strong> Talking to <code>${liveEsc(liveTemplateAddress())}</code> on <b>${liveEsc(liveNetwork())}</b>. You will be asked to sign in your wallet. This page never sees your keys.`;
+  }
+  live$("liveNetName").textContent = liveNetwork();
+  live$("liveHide").disabled = !(liveWallet && hasTpl);
+  live$("liveClaim").disabled = !liveWallet;
+  live$("liveCancel").disabled = !liveWallet;
+  live$("liveCheckPrivate").disabled = !liveWallet;
+  if (!hasWallet) {
+    live$("liveWalletStatus").innerHTML = liveNoWalletHtml();
+  } else if (!liveWallet) {
+    live$("liveWalletStatus").textContent = "A Tari wallet was found on this page. Connect it to begin — nothing is sent until you approve it in the wallet.";
+  }
+}
+
+/* --- Connect --- */
+async function liveConnect() {
+  const box = live$("liveWalletStatus");
+  liveWallet = null;
+  liveAccount = null;
+  liveXtrResource = null;
+  livePrivateMicro = null;
+  const candidates = liveWalletCandidates();
+  if (!candidates.length) {
+    box.innerHTML = liveNoWalletHtml();
+    liveUpdateState();
+    return;
+  }
+  for (const p of candidates) {
+    try {
+      const accts = await p.request({ method: "tari_requestAccounts" });
+      if (!accts || !accts[0]) continue; // a provider with no accounts is not a connected wallet
+      liveWallet = p;
+      liveAccount = accts[0];
+      let net = "";
+      try { net = JSON.stringify(await liveWallet.request({ method: "tari_getNetwork" })); } catch (e) { /* show below */ }
+      let balHtml = "";
+      try {
+        const balances = await liveWallet.request({ method: "tari_getBalances" });
+        const xtr = (balances || []).find((b) => b && b.kind === "Stealth" && (b.symbol === "XTR" || (b.name || "").includes("Tari")));
+        if (xtr) {
+          liveXtrResource = xtr.resourceAddress;
+          const div = Number(xtr.divisibility ?? 6);
+          const shown = (BigInt(String(xtr.amount)) / 10n ** BigInt(div)).toString();
+          balHtml = `<dt>Revealed TARI</dt><dd>${liveEsc(shown)} TARI</dd><dt>Stealth resource</dt><dd class="mono">${liveEsc(String(xtr.resourceAddress))}</dd><dt>Shielded balance</dt><dd>Hidden until you grant view access — use “Check shielded balance” below.</dd>`;
+        } else {
+          balHtml = `<dt>Balances</dt><dd>${liveEsc(JSON.stringify(balances).slice(0, 400))}</dd><dt>Stealth TARI</dt><dd>No stealth TARI resource found in this wallet. Hiding a payment needs shielded TARI.</dd>`;
+        }
+      } catch (e) { balHtml = `<dt>Balances</dt><dd>Could not read balances: ${liveEsc(liveErrText(e))}</dd>`; }
+      const netMismatch = net && net.replace(/"/g, "") !== liveNetwork();
+      box.innerHTML = `<span class="ok" style="display:inline-block;padding:0.2rem 0.45rem">Connected</span>
+        <dl>
+          <dt>Account</dt><dd class="mono">${liveEsc(String(liveAccount))}</dd>
+          <dt>Network</dt><dd>${liveEsc(net)}${netMismatch ? ` <span class="bad">— switch the wallet to ${liveEsc(liveNetwork())}.</span>` : ""}</dd>
+          ${balHtml}
+        </dl>`;
+      liveLog("Wallet connected: " + liveAccount + " on " + net + ".", "ok");
+      liveUpdateState();
+      return;
+    } catch (e) {
+      if (/not running inside Tari Universe|Tari wallet unavailable/i.test(String(e && (e.message || e)))) continue;
+      box.innerHTML = `<span class="bad">${liveEsc(liveErrText(e))}</span>`;
+      liveUpdateState();
+      return;
+    }
+  }
+  box.innerHTML = `<span class="bad">The wallet did not return an account. Check it is unlocked and set to ${liveEsc(liveNetwork())}, then try again.</span>`;
+  liveUpdateState();
+}
+live$("liveConnect").addEventListener("click", liveConnect);
+
+/* --- Current epoch: from the public indexer, no wallet needed --- */
+async function liveIndexerGet(path) {
+  const r = await fetch(`${liveIndexerUrl()}${path}`);
+  if (!r.ok) throw new Error(`Indexer ${r.status}: ${await r.text()}`);
+  return r.json();
+}
+async function liveReadEpoch() {
+  const out = live$("liveEpochOut");
+  out.textContent = "Loading…";
+  try {
+    const net = await liveIndexerGet("/network");
+    const ep = Number(net.epoch ?? net.current_epoch);
+    if (!Number.isFinite(ep)) throw new Error("The indexer did not return an epoch: " + JSON.stringify(net).slice(0, 200));
+    liveEpoch = ep;
+    out.innerHTML = `Current epoch is <b>${ep.toLocaleString("en-US")}</b> (indexer ${liveEsc(liveIndexerUrl())}, network ${liveEsc(String(net.network ?? liveNetwork()))}). Epochs are not days.`;
+    const revealEl = live$("liveRevealEpoch");
+    if (revealEl && !revealEl.dataset.touched) revealEl.value = String(ep + 24);
+    liveLog("Current epoch read from the indexer: " + ep + ".");
+  } catch (e) {
+    out.innerHTML = `<span class="bad">Could not read the epoch: ${liveEsc(liveErrText(e))}</span>`;
+  }
+}
+live$("liveReadEpoch").addEventListener("click", liveReadEpoch);
+live$("liveRevealEpoch").addEventListener("input", (e) => { e.target.dataset.touched = "1"; });
+live$("liveSecret").addEventListener("input", async () => {
+  live$("liveSecretHash").textContent = await liveSha256Hex(live$("liveSecret").value);
+});
+
+/* --- Shielded balance: needs view access (read-only, never a spend) --- */
+live$("liveCheckPrivate").addEventListener("click", async () => {
+  const out = live$("livePrivateOut");
+  out.textContent = "Asking the wallet for view access…";
+  try {
+    if (!liveWallet) throw new Error("Connect a wallet first.");
+    const grant = await liveWallet.request({ method: "tari_requestViewAccess" });
+    if (grant && grant.granted === false) throw new Error("View access was not granted.");
+    const balances = await liveWallet.request({ method: "tari_getPrivateBalances" });
+    const xtr = (balances || []).find((b) => b && (b.symbol === "XTR" || (b.name || "").includes("Tari")));
+    if (!xtr) throw new Error("No private TARI balance found. Shield some TARI in your wallet first.");
+    livePrivateMicro = BigInt(String(xtr.amount));
+    const div = Number(xtr.divisibility ?? 6);
+    const shown = (livePrivateMicro / 10n ** BigInt(div)).toString();
+    out.innerHTML = `Shielded TARI: <b>${liveEsc(shown)} TARI</b> in ${liveEsc(String(xtr.outputCount ?? "?"))} output(s). This is what hiding a payment draws from.`;
+    liveLog("Shielded TARI balance: " + shown + " TARI.");
+  } catch (e) {
+    out.innerHTML = `<span class="bad">${liveEsc(liveErrText(e))}</span>`;
+  }
+});
+
+/* --- Send a transaction: prefer the request trio, fall back to sign-and-submit --- */
+async function liveSendTx(params) {
+  // Per https://universe.tari.mw/integration — prefer
+  // tari_createTransactionRequest: the request persists wallet-side, so a
+  // page reload while the approval popup is open does not lose the result.
+  if (liveWallet.request) {
+    if (params.kind) {
+      try {
+        const created = await liveWallet.request({ method: "tari_createTransactionRequest", params });
+        const requestId = created && (created.requestId || created.request_id || created.id);
+        if (requestId) {
+          // Poll until the user finishes in the popup, up to ~3 minutes.
+          for (let i = 0; i < 90; i++) {
+            await new Promise((r) => setTimeout(r, 2000));
+            const st = await liveWallet.request({ method: "tari_getTransactionRequest", params: { requestId } });
+            const status = (st && (st.status || st.state)) || "";
+            if (status && /pend/i.test(status)) continue;
+            if (st && st.error) throw new Error(typeof st.error === "string" ? st.error : JSON.stringify(st.error));
+            if (status && /reject|cancel|fail|denied/i.test(status)) throw new Error(st.note || status);
+            if (status && /submit|complete|done|success|signed/i.test(status) && !st.result) {
+              try {
+                const sub = await liveWallet.request({ method: "tari_submitTransactionRequest", params: { requestId } });
+                return sub;
+              } catch (e) { return st; }
+            }
+            return st.result || st;
+          }
+          throw new Error("The wallet request is still pending. Check the popup, then try again.");
+        }
+        return created;
+      } catch (e) {
+        // Some wallets want sign-and-submit with instructions instead.
+        const msg = e && e.message ? e.message : String(e);
+        if (!/unknown method|not found|not implemented|unsupported/i.test(msg)) throw e;
+      }
+    }
+    return liveWallet.request({
+      method: "tari_signAndSubmitTransaction",
+      params: params.instructions ? params : { instructions: params.followUpInstructions, dryRun: false },
+    });
+  }
+  throw new Error("This wallet does not expose request().");
+}
+function liveTxId(result) {
+  return result && (result.transactionId || result.transaction_id || result.id || result.hash);
+}
+function liveTxLink(txid) {
+  return txid ? ` <a href="${liveExplorerUrl()}/tx/${txid}" target="_blank" rel="noopener">View transaction</a>.` : "";
+}
+
+/* --- Hide a payment on-chain: InvisiblePayment.create --- */
+live$("liveHide").addEventListener("click", async () => {
+  const out = live$("liveHideOut");
+  out.className = "";
+  out.textContent = "";
+  try {
+    if (!liveHasTemplate()) throw new Error("Set a template address in config.js first (see the README).");
+    if (!liveWallet) throw new Error("Connect a wallet first.");
+    if (!liveXtrResource) throw new Error("No stealth TARI resource found in this wallet. The wallet needs shielded TARI to hide a payment.");
+    if (!Number.isFinite(liveEpoch)) {
+      out.textContent = "Reading the current epoch first…";
+      await liveReadEpoch();
+      if (!Number.isFinite(liveEpoch)) throw new Error("Could not read the current epoch.");
+    }
+    const micro = liveTariToMicro(live$("liveAmount").value);
+    const revealEpoch = Number(live$("liveRevealEpoch").value);
+    if (!Number.isFinite(revealEpoch) || revealEpoch <= liveEpoch) throw new Error("Reveal epoch must be after the current epoch (" + liveEpoch + ").");
+    const receiverBytes = liveFromHex(live$("liveReceiverKey").value.trim());
+    if (receiverBytes.length !== 32) throw new Error("The receiver public key must be 32 bytes (64 hex characters).");
+    const secret = live$("liveSecret").value;
+    if (!secret) throw new Error("Enter a secret phrase.");
+    const secretHash = await liveSha256Hex(secret);
+    live$("liveSecretHash").textContent = secretHash;
+    if (livePrivateMicro !== null && livePrivateMicro < micro) {
+      throw new Error("Shielded balance is " + (livePrivateMicro / 1_000_000n).toString() + " TARI, less than the amount. Shield more TARI in your wallet first.");
+    }
+    // Template call, in the template's own argument order:
+    //   create(funds: Bucket, receiver: RistrettoPublicKeyBytes,
+    //          reveal_epoch: u64, secret_hash: Vec<u8>)
+    // The stealth withdrawal reveals the funds as a Bucket on the
+    // workspace; per the integration docs it lands at workspace id 1 for
+    // withdrawStealthAndExecute (TODO-3: stake's code uses id 0 — this
+    // code follows the docs).
+    const followUp = [{
+      CallFunction: {
+        address: liveBareTemplate(),
+        function: "create",
+        args: [
+          liveWorkspaceArg(1),
+          liveBytesLit(receiverBytes),
+          liveUintLit(revealEpoch),
+          liveBytesLit(liveFromHex(secretHash)),
+        ],
+      },
+    }];
+    // create() touches no existing component, so there is nothing to list
+    // in relatedComponents; the wallet auto-registers its own account.
+    const params = {
+      kind: "withdrawStealthAndExecute",
+      resourceAddress: liveXtrResource,
+      amount: micro.toString(),
+      // TODO-1: the official .d.ts lists workspaceVarName as required for
+      // withdrawStealthAndExecute, but no example value appears anywhere
+      // in the integration docs, and stake's working code omits the
+      // field. It is omitted here too; if the wallet rejects the request
+      // for a missing field, add it per the wallet's error.
+      followUpInstructions: followUp,
+    };
+    out.textContent = "Asking the wallet to sign… keep this tab open.";
+    const result = await liveSendTx(params);
+    const txid = liveTxId(result);
+    const resultJson = JSON.stringify(result);
+    const compMatch = resultJson.match(/component_[0-9a-fA-F]{64}/);
+    out.className = "ok";
+    out.innerHTML = `<b>Payment hidden on-chain.</b>${liveTxLink(txid)}
+      <br><span class="mono">${liveEsc(resultJson.slice(0, 500))}</span>
+      <br>${compMatch ? `New component: <span class="mono">${liveEsc(compMatch[0])}</span> — it has been filled into “Look up a payment” below.` : "The result did not include a component address — find it on the explorer link above, then paste it into “Look up a payment” below."}
+      <br>Save the secret phrase. Only the receiver, with the phrase, can reveal this payment — and only after epoch ${revealEpoch}.`;
+    if (compMatch) live$("liveComp").value = compMatch[0];
+    liveLog("Payment hidden on-chain" + (txid ? " — transaction " + txid + "." : "."), "ok");
+  } catch (e) {
+    out.className = "bad";
+    out.textContent = liveErrText(e);
+    liveLog("Hide on-chain failed: " + liveErrText(e), "bad");
+  }
+});
+
+/* --- Look up a payment: read the component from the indexer --- */
+function liveAt(st, i, ...names) {
+  if (st && typeof st === "object") {
+    if (Array.isArray(st) && st[i] !== undefined && st[i] !== null) return st[i];
+    if (!Array.isArray(st) && String(i) in st && st[i] !== undefined && st[i] !== null) return st[i];
+    for (const n of names) if (st[n] !== undefined && st[n] !== null) return st[n];
+  }
+  return undefined;
+}
+function liveCborHex(v) {
+  if (v && v["@cbor"] === "bytes") return v.hex;
+  if (v && v["@cbor"] === "tag") return liveCborHex(v.value);
+  if (typeof v === "string") return v.replace(/^component_|^resource_|^vault_|^hash_|^template_/, "");
+  if (v && typeof v === "object" && typeof v.hex === "string") return v.hex;
+  return v;
+}
+live$("liveLookup").addEventListener("click", async () => {
+  const box = live$("liveCompOut");
+  const id = live$("liveComp").value.trim();
+  box.innerHTML = "<p>Reading…</p>";
+  try {
+    if (!id) throw new Error("Paste a component address.");
+    const [net, raw] = await Promise.all([liveIndexerGet("/network"), liveIndexerGet(`/substates/${id}`)]);
+    const st =
+      raw?.state?.up?.substate?.Component?.body?.state ??
+      raw?.substate?.Component?.body?.state ??
+      raw?.Component?.body?.state ??
+      raw?.state;
+    if (st == null || typeof st !== "object") {
+      throw new Error("That substate is not a component, or the indexer shape was unexpected: " + JSON.stringify(raw).slice(0, 400));
+    }
+    // InvisiblePayment fields, in the order they are declared in src/lib.rs:
+    // 0 sender, 1 receiver, 2 funds (vault), 3 reveal_epoch,
+    // 4 secret_hash, 5 status (0 Hidden, 1 Revealed, 2 Cancelled).
+    const sender = liveCborHex(liveAt(st, 0, "sender", "sender_key"));
+    const receiver = liveCborHex(liveAt(st, 1, "receiver", "receiver_key"));
+    const revealEpoch = liveAt(st, 3, "reveal_epoch", "revealEpoch");
+    const secretHash = liveCborHex(liveAt(st, 4, "secret_hash", "secretHash"));
+    const status = liveAt(st, 5, "status", "vault_status");
+    if (status == null || secretHash == null) {
+      throw new Error("That component does not look like an InvisiblePayment: " + JSON.stringify(st).slice(0, 400));
+    }
+    const epoch = Number(net.epoch ?? net.current_epoch);
+    const statusText = { 0: "HIDDEN", 1: "REVEALED", 2: "CANCELLED" }[Number(status)] ?? ("unknown (" + status + ")");
+    const canReveal = Number(status) === 0 && Number.isFinite(epoch) && epoch >= Number(revealEpoch);
+    box.innerHTML = `
+      <dl>
+        <dt>Status</dt><dd><b>${liveEsc(statusText)}</b></dd>
+        <dt>Sender</dt><dd class="mono">${liveEsc(String(sender))}</dd>
+        <dt>Receiver</dt><dd class="mono">${liveEsc(String(receiver))}</dd>
+        <dt>Reveal epoch</dt><dd>${liveEsc(String(revealEpoch))} (current ${liveEsc(String(epoch))})</dd>
+        <dt>Secret hash</dt><dd class="mono">${liveEsc(String(secretHash))}</dd>
+        <dt>Amount</dt><dd>Not shown: the vault holds stealth TARI, so the amount is hidden from observers. That is the point.</dd>
+      </dl>
+      <p class="sub">${Number(status) === 0
+        ? (canReveal ? "The reveal epoch has passed — the receiver can reveal it now." : "The reveal epoch has not passed yet — the payment stays invisible.")
+        : "This payment is already settled."}</p>`;
+    live$("liveClaimComp").value = id;
+    live$("liveCancelComp").value = id;
+    liveLog("Payment " + id.slice(0, 20) + "… read from the indexer: " + statusText + ".");
+  } catch (e) {
+    box.innerHTML = `<p class="bad">${liveEsc(liveErrText(e))}</p>`;
+  }
+});
+
+/* --- Reveal (claim) on-chain: InvisiblePayment.claim --- */
+live$("liveClaim").addEventListener("click", async () => {
+  const out = live$("liveClaimOut");
+  out.className = "";
+  out.textContent = "";
+  try {
+    if (!liveWallet) throw new Error("Connect a wallet first. The receiver must be the signer for a reveal.");
+    const component = live$("liveClaimComp").value.trim();
+    if (!component) throw new Error("Paste the payment's component address.");
+    const secret = live$("liveClaimSecret").value;
+    if (!secret) throw new Error("Type the secret phrase.");
+    // Template call, in the template's own argument order:
+    //   claim(secret: Vec<u8>, payout_to: ComponentAddress)
+    // The payout goes to the connected wallet's own account.
+    const instructions = [{
+      CallMethod: {
+        call: { Address: component },
+        method: "claim",
+        args: [
+          liveBytesLit(new TextEncoder().encode(secret)),
+          liveComponentLit(liveAccount),
+        ],
+      },
+    }];
+    out.textContent = "Asking the wallet to sign…";
+    const result = await liveSendTx({ kind: "instructions", instructions });
+    const txid = liveTxId(result);
+    out.className = "ok";
+    out.innerHTML = `<b>REVEALED on-chain.</b> The payment was deposited into your account.${liveTxLink(txid)} <span class="sub">${liveEsc(JSON.stringify(result).slice(0, 300))}</span>`;
+    liveLog("Payment revealed on-chain" + (txid ? " — transaction " + txid + "." : "."), "ok");
+  } catch (e) {
+    out.className = "bad";
+    out.textContent = liveErrText(e);
+    liveLog("Reveal on-chain failed: " + liveErrText(e), "bad");
+  }
+});
+
+/* --- Cancel on-chain: InvisiblePayment.cancel --- */
+live$("liveCancel").addEventListener("click", async () => {
+  const out = live$("liveCancelOut");
+  out.className = "";
+  out.textContent = "";
+  try {
+    if (!liveWallet) throw new Error("Connect a wallet first. Only the sender can cancel.");
+    const component = live$("liveCancelComp").value.trim();
+    if (!component) throw new Error("Paste the payment's component address.");
+    // cancel() returns the locked funds as a Bucket. The documented
+    // pattern (integration docs, "Transacting") puts the returned bucket
+    // on the workspace and deposits it into the caller's account.
+    const instructions = [
+      { CallMethod: { call: { Address: component }, method: "cancel", args: [] } },
+      { PutLastInstructionOutputOnWorkspace: { key: 0 } },
+      { CallMethod: { call: { Address: liveAccount }, method: "deposit", args: [liveWorkspaceArg(0)] } },
+    ];
+    out.textContent = "Asking the wallet to sign…";
+    const result = await liveSendTx({ kind: "instructions", instructions });
+    const txid = liveTxId(result);
+    out.className = "ok";
+    out.innerHTML = `<b>CANCELLED on-chain.</b> The funds returned to your account.${liveTxLink(txid)} <span class="sub">${liveEsc(JSON.stringify(result).slice(0, 300))}</span>`;
+    liveLog("Payment cancelled on-chain" + (txid ? " — transaction " + txid + "." : "."), "ok");
+  } catch (e) {
+    out.className = "bad";
+    out.textContent = liveErrText(e);
+    liveLog("Cancel on-chain failed: " + liveErrText(e), "bad");
+  }
+});
+
+/* --- Boot the live section --- */
+liveUpdateState();
+if (typeof window !== "undefined" && window.addEventListener) {
+  window.addEventListener("tari#initialized", liveUpdateState);
+}
+liveLog("Live mode ready. Connect a wallet to begin — or read the current epoch without one.");
+</script>
+</body>
+</html>

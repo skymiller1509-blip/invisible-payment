@@ -1,7 +1,38 @@
 # The Invisible Payment
 
+**Money nobody can see until the receiver reveals it.**
+
+**10/10 engine tests pass — real Tari engine, no mocks.**
+
+> **Demo video:** TODO — not filmed yet, and not strictly required for this contest. A 60-second SIMULATION walkthrough script is in `VIDEO-SCRIPT.md` if Eddie films one for the announcement post.
+>
+> **Submission:** reply to the contest thread at https://community.tari.com/t/november-build-contest-thread-mvp/520 — deadline 1 Dec 2026, 01:00 WAT. Payment address received 26 Nov 2026; announcement post live on Medium 26 Nov 2026. Thread reply drafted in `../contest-thread-draft.md` — posting waits on staff review of the new forum account.
+>
+> **Live demo (simulation):** https://skymiller1509-blip.github.io/invisible-payment/
+
 A stealth payment on Tari Ootle. Money nobody can see until the receiver
 reveals it. Built for the Tari November Build Contest (MVP theme).
+
+## Hackathon Requirements Met
+
+The contest reply must carry five things (official rules). Each one, with proof:
+
+- [x] Publicly viewable code link — this repo, public since 22 Nov 2026 (17 files, no keys).
+- [x] MVP app link — live simulation demo: https://skymiller1509-blip.github.io/invisible-payment/
+- [x] Project description — in the thread reply draft (`../contest-thread-draft.md`).
+- [x] Tari payment address — mainnet L1 address received 26 Nov 2026 (in the reply draft).
+- [x] Public announcement post — live on Medium, 26 Nov 2026: https://medium.com/@poppyemerald3/the-invisible-payment-a-stealth-vault-on-tari-a1a0805c15cb (Medium counts; X does not count this month).
+- [ ] Thread reply posted — drafted and ready; the new forum account is on hold pending staff review (Eddie's step: message a staff member). Deadline 1 Dec 2026, 01:00 WAT.
+- [ ] Live on-chain reveal — built and ready (CLI + WASM template); waits on the Esmeralda faucet refilling or the wallet unshield-and-resend path. The simulation is the demo until then.
+
+Demo failure-proofing: the simulation needs no wallet, no faucet and no network, so it cannot break on camera. The live path is not filmed until a template is published and funds move.
+
+## Judging Highlights
+
+- **Originality:** a stealth payment vault — no amount, no sender, no receiver visible on chain until the receiver reveals it with the secret. The invisibility is the native stealth property of TARI on Ootle, not a mock.
+- **Technical execution:** 10/10 engine tests pass against the real Tari engine in-process, no mocks; the lock is three real conditions (reveal epoch, SHA-256 secret, receiver key); rejected reveals commit nothing.
+- **Completeness:** the full flow works end to end — hide, cancel, reveal, and all three refusal paths — proven in the engine tests and shown in the live simulation demo.
+- **Presentation:** the demo labels itself a simulation throughout; the announcement post is live on Medium; the thread reply is drafted with every required link.
 
 ## What it is
 
@@ -31,6 +62,11 @@ reveal is the moment the money becomes visible.
 4. Reveals by anyone else, reveals with a wrong secret, and reveals
    before the epoch are all rejected, and a rejected transaction
    commits nothing.
+
+## Tech stack
+
+- Rust WASM template for Tari Ootle (Esmeralda testnet), tested with `tari_template_test_tooling` (real engine, in-process, no mocks)
+- Demo: one static page (`demo/index.html` + `demo/config.js`, no build step, no backend), simulation mode plus a wired live mode via `window.tari`
 
 ## Run the tests
 
@@ -63,11 +99,12 @@ cargo test
 - `cancel_blocked_for_non_sender` — a stranger cannot cancel
   (`AccessDenied` from the owner rule).
 
-## Run the demo
+## Try it yourself
 
-The demo has two modes in one page (`demo/index.html` + `demo/config.js`,
-no build step, no backend). Serve the `demo/` folder with any static
-server:
+Open the live demo (simulation — no wallet, no real TARI moves):
+https://skymiller1509-blip.github.io/invisible-payment/
+
+Or serve the `demo/` folder locally:
 
 ```sh
 cd demo

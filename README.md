@@ -6,7 +6,7 @@
 
 > **Demo video:** TODO — not filmed yet, and not strictly required for this contest. A 60-second SIMULATION walkthrough script is in `VIDEO-SCRIPT.md` if Eddie films one for the announcement post.
 >
-> **Submission:** reply to the contest thread at https://community.tari.com/t/november-build-contest-thread-mvp/520 — deadline 1 Dec 2026, 01:00 WAT. Payment address received 26 Nov 2026; announcement post live on Medium 26 Nov 2026. Thread reply drafted in `../contest-thread-draft.md` — posting waits on staff review of the new forum account.
+> **Submission:** reply to the contest thread at https://community.tari.com/t/november-build-contest-thread-mvp/520 — deadline 1 Dec 2026, 01:00 WAT. Payment address received 26 Nov 2026; announcement post live on Medium 26 Nov 2026. Thread reply posted and live as post 47 (27 Nov 2026); live on-chain reveal done the same day (see below).
 >
 > **Live demo (simulation):** https://skymiller1509-blip.github.io/invisible-payment/
 
@@ -22,16 +22,16 @@ The contest reply must carry five things (official rules). Each one, with proof:
 - [x] Project description — in the thread reply draft (`../contest-thread-draft.md`).
 - [x] Tari payment address — mainnet L1 address received 26 Nov 2026 (in the reply draft).
 - [x] Public announcement post — live on Medium, 26 Nov 2026: https://medium.com/@poppyemerald3/the-invisible-payment-a-stealth-vault-on-tari-a1a0805c15cb (Medium counts; X does not count this month).
-- [ ] Thread reply posted — drafted and ready; the new forum account is on hold pending staff review (Eddie's step: message a staff member). Deadline 1 Dec 2026, 01:00 WAT.
-- [ ] Live on-chain reveal — built and ready (CLI + WASM template); waits on the Esmeralda faucet refilling or the wallet unshield-and-resend path. The simulation is the demo until then.
+- [x] Thread reply posted — live as post 47 of 52 in the contest thread (by "Ihu", 26 Nov 2026; staff review cleared 27 Nov).
+- [x] Live on-chain reveal — DONE 27 Nov 2026: template `template_7cc97df35dd28e88dc3932e9fc0a2e49fd59b84d760defa1b4482b72a6e3746d` published, 1 TARI locked in the vault, revealed at epoch 13449, tx `06595f82498fc7942314b75e8c36d43d59602d8fa5e3243788019639febf3c93`, fee 3726 µT; receiver balance after 1996274 µT. Funded by the entrant herself — the Esmeralda faucet stayed dry.
 
-Demo failure-proofing: the simulation needs no wallet, no faucet and no network, so it cannot break on camera. The live path is not filmed until a template is published and funds move.
+Demo failure-proofing: the simulation needs no wallet, no faucet and no network, so it cannot break on camera. The live path is now proven on-chain too (template published, 1 TARI locked and revealed, 27 Nov 2026).
 
 ## Judging Highlights
 
 - **Originality:** a stealth payment vault — no amount, no sender, no receiver visible on chain until the receiver reveals it with the secret. The invisibility is the native stealth property of TARI on Ootle, not a mock.
 - **Technical execution:** 10/10 engine tests pass against the real Tari engine in-process, no mocks; the lock is three real conditions (reveal epoch, SHA-256 secret, receiver key); rejected reveals commit nothing.
-- **Completeness:** the full flow works end to end — hide, cancel, reveal, and all three refusal paths — proven in the engine tests and shown in the live simulation demo.
+- **Completeness:** the full flow works end to end — hide, cancel, reveal, and all three refusal paths — proven in the engine tests, shown in the live simulation demo, and proven live on Esmeralda 27 Nov 2026 (vault locked 1 TARI, receiver revealed it, tx 06595f82…, epoch 13449).
 - **Presentation:** the demo labels itself a simulation throughout; the announcement post is live on Medium; the thread reply is drafted with every required link.
 
 ## What it is
